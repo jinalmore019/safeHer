@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafeHer — Live Location Tracking</title>
+  <meta name="description" content="Real-time emergency location tracking powered by SafeHer." />
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  <style>
+    :root {
+      --bg: #0d0d12;
+      --surface: #16161f;
+      --surface2: #1e1e2a;
+      --border: rgba(255,255,255,0.08);
+      --accent: #e5335a;
+      --accent-glow: rgba(229,51,90,0.25);
+      --text-primary: #f0f0f5;
+      --text-secondary: #8888aa;
+      --green: #22c55e;
+      --yellow: #f59e0b;
+      --red: #ef4444;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #e5335a, #c41d47);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px var(--accent-glow);
+      flex-shrink: 0;
+    }
+
+    .logo-icon svg { width: 20px; height: 20px; }
+
+    .header-text h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .header-text p {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 1px;
+    }
+
+    /* ── Status banner ── */
+    #status-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      transition: background 0.4s;
+    }
+
+    .pulse-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .pulse-dot.live { animation: pulse 1.4s ease-in-out infinite; }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+      50%       { box-shadow: 0 0 0 8px transparent; }
+    }
+
+    /* ── Map ── */
+    #map {
+      flex: 1;
+      min-height: 0;
+      width: 100%;
+    }
+
+    /* ── Info panel ── */
+    #info-panel {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 16px 20px;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .info-card {
+      background: var(--surface2);
+      border-radius: 10px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+    }
+
+    .info-card .label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .info-card .value {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Overlay states ── */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      z-index: 2000;
+      gap: 16px;
+      padding: 32px;
+      text-align: center;
+    }
+
+    #overlay.hidden { display: none; }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #overlay h2 { font-size: 20px; font-weight: 700; }
+    #overlay p  { font-size: 14px; color: var(--text-secondary); max-width: 280px; }
+
+    /* ── Leaflet dark style override ── */
+    .leaflet-container { background: #1a1a26; }
+    .leaflet-tile { filter: brightness(0.75) contrast(1.1) saturate(0.8); }
+
+    /* ── Footer ── */
+    .powered-by {
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-secondary);
+      padding: 10px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      letter-spacing: 0.4px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading / Error overlay -->
+  <div id="overlay">
+    <div class="spinner" id="spinner"></div>
+    <h2 id="overlay-title">Locating…</h2>
+    <p id="overlay-msg">Connecting to SafeHer live tracking service.</p>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z"
+              fill="white" fill-opacity="0.9"/>
+      </svg>
+    </div>
+    <div class="header-text">
+      <h1>SafeHer — Emergency Tracker</h1>
+      <p id="header-sub">Connecting…</p>
+    </div>
+  </header>
+
+  <!-- Status banner -->
+  <div id="status-banner">
+    <div class="pulse-dot" id="status-dot"></div>
+    <span id="status-text">Resolving tracking token…</span>
+  </div>
+
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Info panel -->
+  <div id="info-panel">
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="label">Latitude</div>
+        <div class="value" id="lat-val">—</div>
+      </div>
+      <div class="info-card">
+        <div class="label">Longitude</div>
+        <div class="value" id="lng-val">—</div>
+      </div>
+      <div class="info-card">
+        <div class="label">Last Updated</div>
+        <div class="value" id="updated-val">—</div>
+      </div>
+      <div class="info-card">
+        <div class="label">Status</div>
+        <div class="value" id="status-val">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="powered-by">Powered by SafeHer · Emergency response platform</div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WLs="
+    crossorigin=""></script>
+
+  <!-- Firebase JS SDK (CDN) -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js';
+    import {
+      getFirestore,
+      doc,
+      getDoc,
+      onSnapshot
+    } from 'https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js';
+
+    // ── Firebase project config (public — same project as the app) ──
+    const firebaseConfig = {
+      apiKey: "AIzaSyDfUnEPyz0jhih9-qlN1S0405xa-1tFpnA",
+      authDomain: "safeher-b637f.firebaseapp.com",
+      projectId: "safeher-b637f",
+      storageBucket: "safeher-b637f.firebasestorage.app",
+      messagingSenderId: "1011173684731",
+      appId: "1:1011173684731:web:fc749a234e5672e64f075e"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db  = getFirestore(app);
+
+    // ── DOM refs ──
+    const overlay      = document.getElementById('overlay');
+    const spinner      = document.getElementById('spinner');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlayMsg   = document.getElementById('overlay-msg');
+    const statusDot    = document.getElementById('status-dot');
+    const statusText   = document.getElementById('status-text');
+    const statusBanner = document.getElementById('status-banner');
+    const headerSub    = document.getElementById('header-sub');
+    const latVal       = document.getElementById('lat-val');
+    const lngVal       = document.getElementById('lng-val');
+    const updatedVal   = document.getElementById('updated-val');
+    const statusVal    = document.getElementById('status-val');
+
+    // ── Helper: show error overlay ──
+    function showError(title, msg) {
+      spinner.style.display = 'none';
+      overlayTitle.textContent = title;
+      overlayMsg.textContent   = msg;
+    }
+
+    // ── Read token from URL hash ──
+    const token = location.hash.replace(/^#/, '').trim();
+
+    if (!token) {
+      showError('No Tracking Token', 'This link appears to be incomplete. Please ask the sender to re-send the original SafeHer emergency message.');
+      throw new Error('No token in URL hash');
+    }
+
+    // ── Initialise Leaflet map (hidden behind overlay for now) ──
+    const map = L.map('map', { zoomControl: true, attributionControl: false }).setView([20.5937, 78.9629], 5);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    // Custom red marker
+    const markerIcon = L.divIcon({
+      html: `<div style="
+        width:18px;height:18px;border-radius:50%;
+        background:linear-gradient(135deg,#e5335a,#c41d47);
+        border:3px solid white;
+        box-shadow:0 0 12px rgba(229,51,90,0.7);
+      "></div>`,
+      className: '',
+      iconSize: [18, 18],
+      iconAnchor: [9, 9]
+    });
+
+    let marker = null;
+
+    function moveTo(lat, lng) {
+      if (!marker) {
+        marker = L.marker([lat, lng], { icon: markerIcon }).addTo(map);
+      } else {
+        marker.setLatLng([lat, lng]);
+      }
+      map.setView([lat, lng], Math.max(map.getZoom(), 15));
+    }
+
+    function formatTime(iso) {
+      if (!iso) return '—';
+      try {
+        return new Date(iso).toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          hour12: true,
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          day: '2-digit', month: 'short'
+        });
+      } catch { return iso; }
+    }
+
+    function setStatus(incidentStatus) {
+      const isActive = incidentStatus === 'active';
+      statusDot.className = 'pulse-dot' + (isActive ? ' live' : '');
+      statusDot.style.background = isActive ? '#e5335a' : '#22c55e';
+      statusText.textContent = isActive ? '🔴 EMERGENCY ACTIVE — Live tracking' : '✅ Emergency Resolved';
+      statusBanner.style.background = isActive ? 'rgba(229,51,90,0.12)' : 'rgba(34,197,94,0.10)';
+      statusVal.textContent = incidentStatus?.toUpperCase() ?? '—';
+      statusVal.style.color = isActive ? '#e5335a' : '#22c55e';
+      headerSub.textContent = isActive ? 'Live location updating every 5 s' : 'Incident resolved';
+    }
+
+    // ── Step 1: Resolve token → incidentId ──
+    let unsubscribe = null;
+
+    try {
+      const tokenDoc = await getDoc(doc(db, 'tracking_tokens', token));
+
+      if (!tokenDoc.exists()) {
+        showError('Link Not Found', 'This tracking link is invalid or has expired. Please ask the sender to re-send the emergency message.');
+        throw new Error('Token document not found');
+      }
+
+      const { incidentId } = tokenDoc.data();
+
+      // ── Step 2: Subscribe to the incident document ──
+      unsubscribe = onSnapshot(doc(db, 'incidents', incidentId), (snap) => {
+        if (!snap.exists()) {
+          showError('Incident Not Found', 'The emergency record could not be found in the database.');
+          return;
+        }
+
+        const data = snap.data();
+
+        // Hide overlay once we have data
+        overlay.classList.add('hidden');
+
+        // Update status
+        setStatus(data.status);
+
+        // Update map and info cards
+        const loc = data.latestLocation;
+        if (loc?.latitude && loc?.longitude) {
+          moveTo(loc.latitude, loc.longitude);
+          latVal.textContent   = loc.latitude.toFixed(6);
+          lngVal.textContent   = loc.longitude.toFixed(6);
+          updatedVal.textContent = formatTime(loc.timestamp);
+        } else if (data.latitude && data.longitude) {
+          // Fall back to incident-level coords if no latestLocation yet
+          moveTo(data.latitude, data.longitude);
+          latVal.textContent = data.latitude.toFixed(6);
+          lngVal.textContent = data.longitude.toFixed(6);
+          updatedVal.textContent = formatTime(data.confirmedAt);
+        }
+      }, (err) => {
+        console.error('Firestore listener error', err);
+        showError('Connection Error', 'Could not connect to the live location service. Please check your internet connection.');
+      });
+
+    } catch (e) {
+      if (!overlayTitle.textContent.startsWith('Link') && !overlayTitle.textContent.startsWith('Incident') && !overlayTitle.textContent.startsWith('Connection')) {
+        showError('Error', 'An unexpected error occurred. Please try again.');
+      }
+      console.error(e);
+    }
+  </script>
+</body>
+</html>

@@ -7,6 +7,7 @@ import { DatabaseService } from '../services/DatabaseService';
 import { LocationService } from '../services/LocationService';
 import { SyncService } from '../services/SyncService';
 import { FirebaseService } from '../services/FirebaseService';
+import { TrackingTokenService } from '../services/TrackingTokenService';
 import { ShakeDetectionService } from '../services/ShakeDetectionService';
 import { AudioDistressService } from '../services/AudioDistressService';
 import * as Location from 'expo-location';
@@ -144,7 +145,7 @@ export const SOSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             DatabaseService.addLocation(location);
           }
 
-          // 5. Send Background SMS (Offline Alert)
+          // 5. Send Background SMS — includes SafeHer live tracking link
           if (Platform.OS === 'android') {
             try {
               const granted = await PermissionsAndroid.request(
@@ -159,11 +160,47 @@ export const SOSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               );
               
               if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-                // Formatting message
-                let msg = isDuress ? "DURESS ALERT: " : "EMERGENCY SOS: ";
-                msg += "I need help. ";
-                const mapsLink = location ? `https://maps.google.com/?q=${location.latitude},${location.longitude}` : 'Unknown';
-                msg += `My live location: ${mapsLink}`;
+                // Generate a secure tracking token and get the SafeHer tracking URL.
+                // Falls back to empty string if offline — message still sends without the link.
+                const trackingUrl = await TrackingTokenService.generateTrackingToken(incidentId);
+
+                // Resolve sender name — DatabaseService.getUser() not yet implemented,
+                // so we fall back to 'Someone' until user profile storage is added.
+                const senderName = 'Someone';
+
+                // Build the formatted emergency SMS body
+                const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+                let msg: string;
+
+                if (isDuress) {
+                  // Duress: plain, low-profile message
+                  msg = `DURESS ALERT: ${senderName} needs help.`;
+                  if (trackingUrl) {
+                    msg += `\n\nLive Location:\n${trackingUrl}`;
+                  } else if (location) {
+                    msg += `\n\nhttps://maps.google.com/?q=${location.latitude},${location.longitude}`;
+                  }
+                } else {
+                  // Normal SOS: full formatted SafeHer alert
+                  if (trackingUrl) {
+                    msg =
+                      `\uD83D\uDEA8 SAFEHER EMERGENCY ALERT\n\n` +
+                      `${senderName} has triggered an SOS and may need help.\n\n` +
+                      `\uD83D\uDCCD Live Location:\n${trackingUrl}\n\n` +
+                      `Open this link to view their current live location.\n` +
+                      `Time: ${timestamp}`;
+                  } else {
+                    // Fallback: no tracking URL (offline or token generation failed)
+                    const coordsText = location
+                      ? `https://maps.google.com/?q=${location.latitude},${location.longitude}`
+                      : 'Unknown';
+                    msg =
+                      `\uD83D\uDEA8 SAFEHER EMERGENCY ALERT\n\n` +
+                      `${senderName} has triggered an SOS and may need help.\n\n` +
+                      `\uD83D\uDCCD Last Known Location:\n${coordsText}\n\n` +
+                      `Time: ${timestamp}`;
+                  }
+                }
         
                 const contacts = DatabaseService.getContacts();
                 if (contacts.length === 0) {

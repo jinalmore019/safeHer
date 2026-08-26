@@ -54,5 +54,22 @@ export const FirebaseService = {
     } catch (error) {
       console.error(`[FirebaseService] Failed to update live location`, error);
     }
+  },
+
+  /**
+   * Persists a tracking token → incidentId mapping to Firestore.
+   * The web tracking page looks up this document to find the incident.
+   */
+  createTrackingToken: async (token: string, incidentId: string): Promise<void> => {
+    try {
+      await setDoc(doc(db, 'tracking_tokens', token), {
+        incidentId,
+        createdAt: new Date().toISOString(),
+      });
+      console.log(`[FirebaseService] Tracking token stored: ${token}`);
+    } catch (error) {
+      console.error(`[FirebaseService] Failed to store tracking token`, error);
+      throw error;
+    }
   }
 };
