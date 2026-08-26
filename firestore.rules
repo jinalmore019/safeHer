@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Public read: web tracking page resolves token → incidentId
+    match /tracking_tokens/{token} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Public read: web tracking page subscribes to incident for live location
+    match /incidents/{incidentId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // All other documents require auth
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

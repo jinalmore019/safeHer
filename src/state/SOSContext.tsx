@@ -14,7 +14,7 @@ import * as Location from 'expo-location';
 import { SafeWordService } from '../services/SafeWordService';
 import { JourneySentinelService } from '../services/JourneySentinelService';
 import * as SMS from 'expo-sms';
-// import { sendSmsAsync } from '../../modules/safeher-sms';
+import { sendSmsAsync } from '../../modules/safeher-sms';
 // import SafeherBackgroundModule from '../../modules/safeher-background/src/SafeherBackgroundModule';
 // import { EventEmitter } from 'expo-modules-core';
 
@@ -159,71 +159,128 @@ export const SOSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 }
               );
               
-              if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-                // Generate a secure tracking token and get the SafeHer tracking URL.
-                // Falls back to empty string if offline — message still sends without the link.
-                const trackingUrl = await TrackingTokenService.generateTrackingToken(incidentId);
+              // Generate a secure tracking token and get the SafeHer tracking URL.
+              // Falls back to empty string if offline — message still sends without the link.
+              const trackingUrl = await TrackingTokenService.generateTrackingToken(incidentId);
 
-                // Resolve sender name — DatabaseService.getUser() not yet implemented,
-                // so we fall back to 'Someone' until user profile storage is added.
-                const senderName = 'Someone';
+              // Resolve sender name — DatabaseService.getUser() not yet implemented,
+              // so we fall back to 'Someone' until user profile storage is added.
+              const senderName = 'Someone';
 
-                // Build the formatted emergency SMS body
-                const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
-                let msg: string;
+              // Build the formatted emergency SMS body
+              const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+              const coordsText = location
+                ? `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`
+                : 'Unknown';
+              let msg: string;
 
-                if (isDuress) {
-                  // Duress: plain, low-profile message
-                  msg = `DURESS ALERT: ${senderName} needs help.`;
-                  if (trackingUrl) {
-                    msg += `\n\nLive Location:\n${trackingUrl}`;
-                  } else if (location) {
-                    msg += `\n\nhttps://maps.google.com/?q=${location.latitude},${location.longitude}`;
-                  }
-                } else {
-                  // Normal SOS: full formatted SafeHer alert
-                  if (trackingUrl) {
-                    msg =
-                      `\uD83D\uDEA8 SAFEHER EMERGENCY ALERT\n\n` +
-                      `${senderName} has triggered an SOS and may need help.\n\n` +
-                      `\uD83D\uDCCD Live Location:\n${trackingUrl}\n\n` +
-                      `Open this link to view their current live location.\n` +
-                      `Time: ${timestamp}`;
-                  } else {
-                    // Fallback: no tracking URL (offline or token generation failed)
-                    const coordsText = location
-                      ? `https://maps.google.com/?q=${location.latitude},${location.longitude}`
-                      : 'Unknown';
-                    msg =
-                      `\uD83D\uDEA8 SAFEHER EMERGENCY ALERT\n\n` +
-                      `${senderName} has triggered an SOS and may need help.\n\n` +
-                      `\uD83D\uDCCD Last Known Location:\n${coordsText}\n\n` +
-                      `Time: ${timestamp}`;
-                  }
+              if (isDuress) {
+                // Duress: plain, low-profile message
+                msg = `DURESS ALERT: ${senderName} needs help.`;
+                if (trackingUrl) {
+                  msg += `\n\nLive Location:\n${trackingUrl}`;
                 }
-        
-                const contacts = DatabaseService.getContacts();
+                msg += `\n\nInitial Location:\n${coordsText}`;
+              } else {
+                // Normal SOS: full formatted SafeHer alert containing both URL and initial coords
+                msg =
+                  `\uD83D\uDEA8 SAFEHER EMERGENCY ALERT\n\n` +
+                  `${senderName} has triggered an SOS and may need help.\n\n`;
+
+                if (trackingUrl) {
+                  msg += `\uD83D\uDCCD Live Location:\n${trackingUrl}\n\n`;
+                }
+
+                msg +=
+                  `Initial Location:\n${coordsText}\n\n` +
+                  `Time:\n${timestamp}\n\n` +
+                  `Please open the live location link immediately.`;
+              }
+
+              const contacts = DatabaseService.getContacts();
+
+              if (granted === PermissionsAndroid.RESULTS.GRANTED) {
                 if (contacts.length === 0) {
                   console.warn('No emergency contacts configured to receive SMS.');
                 } else {
+                  for (const contact of contacts) {
+                    if (contact.notifyOnSOS) {
+                      try {
+                        console.log(`[SMS] Attempting automatic SMS to ${contact.phone}`);
+                        const success = await sendSmsAsync(contact.phone, msg);
+                        if (success) {
+                          console.log(`[SMS] Automatic SMS successfully sent to ${contact.phone}`);
+                        } else {
+                          console.warn(`[SMS] Automatic SMS returned false for ${contact.phone}. Falling back to composer.`);
+                          await SMS.sendSMSAsync([contact.phone], msg);
+                        }
+                      } catch (nativeErr: any) {
+                        console.error(`[SMS] Automatic SMS failed for ${contact.phone}: ${nativeErr?.message || nativeErr}. Falling back to composer.`, nativeErr);
+                        try {
+                          await SMS.sendSMSAsync([contact.phone], msg);
+                        } catch (composerErr) {
+                          console.error(`[SMS] Fallback SMS composer failed for ${contact.phone}`, composerErr);
+                        }
+                      }
+                    }
+                  }
+                  console.log(`Automatic emergency SMS dispatch complete.`);
+                }
+              } else {
+                console.warn('[SMS] SMS permission denied. Falling back to manual composer.');
+                if (contacts.length > 0) {
                   const isAvailable = await SMS.isAvailableAsync();
                   if (isAvailable) {
                     for (const contact of contacts) {
                       if (contact.notifyOnSOS) {
-                        console.log(`Sending SMS to ${contact.phone}`);
+                        console.log(`[SMS] Launching composer for ${contact.phone}`);
                         await SMS.sendSMSAsync([contact.phone], msg);
                       }
                     }
                   } else {
                     console.log(`[SMS] Error: SMS is not available on this device.`);
                   }
-                  console.log(`Emergency SMS sent successfully to ${contacts.length} contacts.`);
                 }
-              } else {
-                console.warn('SMS permission denied');
               }
             } catch (err) {
               console.error('Failed to send SMS', err);
+            }
+          } else {
+            // Non-Android platforms (e.g. iOS/web): Always use composer
+            try {
+              const trackingUrl = await TrackingTokenService.generateTrackingToken(incidentId);
+              const senderName = 'Someone';
+              const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+              const coordsText = location
+                ? `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`
+                : 'Unknown';
+
+              let msg =
+                `\uD83D\uDEA8 SAFEHER EMERGENCY ALERT\n\n` +
+                `${senderName} has triggered an SOS and may need help.\n\n`;
+
+              if (trackingUrl) {
+                msg += `\uD83D\uDCCD Live Location:\n${trackingUrl}\n\n`;
+              }
+
+              msg +=
+                `Initial Location:\n${coordsText}\n\n` +
+                `Time:\n${timestamp}\n\n` +
+                `Please open the live location link immediately.`;
+
+              const contacts = DatabaseService.getContacts();
+              if (contacts.length > 0) {
+                const isAvailable = await SMS.isAvailableAsync();
+                if (isAvailable) {
+                  for (const contact of contacts) {
+                    if (contact.notifyOnSOS) {
+                      await SMS.sendSMSAsync([contact.phone], msg);
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('Failed to send manual composer SMS on non-Android platform', err);
             }
           }
 
