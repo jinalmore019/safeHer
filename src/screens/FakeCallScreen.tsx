@@ -4,7 +4,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Audio } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 import { Colors, Typography, Spacing, Radius } from '../design/tokens';
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+import { SafeWordService } from '../services/SafeWordService';
+import { AICallService } from '../services/AICallService';
 
 export default function FakeCallScreen({ route }: any) {
   const navigation = useNavigation();
@@ -13,6 +17,109 @@ export default function FakeCallScreen({ route }: any) {
   const [callState, setCallState] = useState<'incoming' | 'active' | 'ended'>('incoming');
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
+
+  const [isSpeakingAI, setIsSpeakingAI] = useState(false);
+  const transcriptRef = React.useRef<string>('');
+  const debounceTimer = React.useRef<any>(null);
+
+  const handleUserTurnFinished = async (finalTranscript: string) => {
+    if (!finalTranscript.trim() || isSpeakingAI) return;
+    
+    setIsSpeakingAI(true);
+    transcriptRef.current = ''; 
+    
+    try {
+      console.log(`[FakeCall] User finished speaking. Sending to AI: "${finalTranscript}"`);
+      const response = await AICallService.generateResponse(finalTranscript);
+      console.log(`[FakeCall] AI Response: "${response}"`);
+      
+      try { ExpoSpeechRecognitionModule.stop(); } catch (e) {}
+
+      Speech.speak(response, {
+        onDone: () => {
+          setIsSpeakingAI(false);
+          // Safety: only restart mic if still active
+          try { ExpoSpeechRecognitionModule.start({ lang: 'en-US', interimResults: false, continuous: true }); } catch (e) {}
+        },
+        onError: () => {
+          setIsSpeakingAI(false);
+          try { ExpoSpeechRecognitionModule.start({ lang: 'en-US', interimResults: false, continuous: true }); } catch (e) {}
+        },
+        onStopped: () => setIsSpeakingAI(false)
+      });
+    } catch (e) {
+      console.error('[FakeCall] AI turn error:', e);
+      setIsSpeakingAI(false);
+    }
+  };
+
+  // Speech recognition event listeners
+  useSpeechRecognitionEvent('result', (event) => {
+    if (event.results && event.results.length > 0) {
+      const transcript = event.results[0]?.transcript;
+      if (transcript) {
+        console.log(`[FakeCall] Speech recognized: "${transcript}"`);
+        SafeWordService.processAudioPhrase(transcript)
+          .then((triggered) => {
+            if (triggered) {
+              console.log('[FakeCall] Safe word matched! Triggering silent SOS.');
+              handleEnd();
+            }
+          })
+          .catch((err) => console.error('[FakeCall] SafeWordService error:', err));
+          
+        if (!isSpeakingAI) {
+          transcriptRef.current = transcript;
+          if (debounceTimer.current) clearTimeout(debounceTimer.current);
+          debounceTimer.current = setTimeout(() => {
+            handleUserTurnFinished(transcriptRef.current);
+          }, 1500);
+        }
+      }
+    }
+  });
+
+  useSpeechRecognitionEvent('error', (event) => {
+    console.warn('[FakeCall] Speech recognition error event:', event.error, event.message);
+  });
+
+  useEffect(() => {
+    let isListening = false;
+
+    const startSpeechRec = async () => {
+      try {
+        const perms = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+        if (perms.granted) {
+          console.log('[FakeCall] Speech recognition permission granted. Starting listener...');
+          await ExpoSpeechRecognitionModule.start({
+            lang: 'en-US',
+            interimResults: false,
+            continuous: true,
+          });
+          isListening = true;
+        } else {
+          console.warn('[FakeCall] Speech recognition permission denied.');
+        }
+      } catch (err) {
+        console.error('[FakeCall] Failed to start speech recognition:', err);
+      }
+    };
+
+    if (callState === 'active') {
+      startSpeechRec();
+    }
+
+    return () => {
+      if (isListening) {
+        try {
+          console.log('[FakeCall] Stopping speech recognition...');
+          ExpoSpeechRecognitionModule.stop();
+        } catch (err) {
+          console.error('[FakeCall] Failed to stop speech recognition:', err);
+        }
+      }
+    };
+  }, [callState]);
 
   useEffect(() => {
     // Play ringtone loop and haptic vibrations
@@ -57,6 +164,9 @@ export default function FakeCallScreen({ route }: any) {
 
   const handleEnd = () => {
     setCallState('ended');
+    AICallService.resetConversation();
+    Speech.stop();
+    try { ExpoSpeechRecognitionModule.stop(); } catch(e) {}
     setTimeout(() => {
       if (navigation.canGoBack()) {
         navigation.goBack();

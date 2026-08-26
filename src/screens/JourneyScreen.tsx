@@ -43,16 +43,24 @@ export default function JourneyScreen() {
   };
 
   useEffect(() => {
-    LocationService.getCurrentLocation().then(loc => {
-      if (loc) {
-        setCurrentLoc({
-          latitude: loc.latitude,
-          longitude: loc.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        });
+    const initLocation = async () => {
+      const hasPermission = await LocationService.requestPermissions();
+      if (hasPermission) {
+        const loc = await LocationService.getCurrentLocation();
+        if (loc) {
+          setCurrentLoc({
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            latitudeDelta: 0.05,
+            longitudeDelta: 0.05,
+          });
+        }
+      } else {
+        Alert.alert('Permission Required', 'SafeHer needs location permissions to track your journey and verify route deviations.');
       }
-    });
+    };
+
+    initLocation();
 
     const interval = setInterval(() => {
       setIsActive(JourneySentinelService.isJourneyActive());
@@ -159,8 +167,8 @@ export default function JourneyScreen() {
         longitudeDelta: Math.abs(resolvedSource.longitude - resolvedDest.longitude) * 1.5 || 0.05,
       });
 
-      // Start sentinel monitoring on destination
-      await JourneySentinelService.startJourney(resolvedDest);
+      // Start sentinel monitoring on destination and route deviation
+      await JourneySentinelService.startJourney(resolvedDest, routeInfo.coordinates);
       setIsActive(true);
 
     } catch (e: any) {

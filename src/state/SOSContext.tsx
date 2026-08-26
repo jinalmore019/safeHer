@@ -15,8 +15,8 @@ import { SafeWordService } from '../services/SafeWordService';
 import { JourneySentinelService } from '../services/JourneySentinelService';
 import * as SMS from 'expo-sms';
 import { sendSmsAsync } from '../../modules/safeher-sms';
-// import SafeherBackgroundModule from '../../modules/safeher-background/src/SafeherBackgroundModule';
-// import { EventEmitter } from 'expo-modules-core';
+import SafeherBackgroundModule from '../../modules/safeher-background/src/SafeherBackgroundModule';
+import { EventEmitter } from 'expo-modules-core';
 
 // Initialize DB on startup
 DatabaseService.init();
@@ -26,10 +26,11 @@ interface SOSState {
   countdown: number;
   activeIncident: Incident | null;
   activeLocation: LocationSnapshot | null;
+  triggerType: 'manual' | 'shake_trigger' | 'scream_trigger' | 'safe_word';
 }
 
 type SOSAction =
-  | { type: 'TRIGGER_SOS' }
+  | { type: 'TRIGGER_SOS'; payload?: 'manual' | 'shake_trigger' | 'scream_trigger' | 'safe_word' }
   | { type: 'TICK_COUNTDOWN'; payload: number }
   | { type: 'CANCEL_SOS' }
   | { type: 'CONFIRM_SOS' }
@@ -44,12 +45,13 @@ const initialState: SOSState = {
   countdown: 5,
   activeIncident: null,
   activeLocation: null,
+  triggerType: 'manual',
 };
 
 function sosReducer(state: SOSState, action: SOSAction): SOSState {
   switch (action.type) {
     case 'TRIGGER_SOS':
-      return { ...state, engineState: 'TRIGGERED', countdown: 5 };
+      return { ...state, engineState: 'TRIGGERED', countdown: 5, triggerType: action.payload || 'manual' };
     case 'TICK_COUNTDOWN':
       return { ...state, countdown: action.payload };
     case 'CANCEL_SOS':
@@ -77,7 +79,7 @@ function sosReducer(state: SOSState, action: SOSAction): SOSState {
 }
 
 interface SOSContextProps extends SOSState {
-  triggerSOS: () => void;
+  triggerSOS: (triggerType?: any) => void;
   cancelSOS: () => void;
   triggerDuress: () => void;
   resolveSOS: () => void;
@@ -103,7 +105,9 @@ export const SOSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (state.engineState === 'TRIGGERED' && state.countdown > 0) {
       timer = setTimeout(() => {
         dispatch({ type: 'TICK_COUNTDOWN', payload: state.countdown - 1 });
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        if (state.triggerType !== 'safe_word') {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        }
       }, 1000);
     } else if (state.engineState === 'TRIGGERED' && state.countdown === 0) {
       dispatch({ type: 'CONFIRM_SOS' });
@@ -130,7 +134,7 @@ export const SOSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const newIncident: Incident = {
             id: incidentId,
             userId: 'user_local', // For now, local user ID
-            triggerType: isDuress ? 'duress' : 'sos',
+            triggerType: isDuress ? 'duress' : state.triggerType,
             status: 'active',
             createdAt: new Date().toISOString(),
             confirmedAt: new Date().toISOString(),
@@ -139,11 +143,24 @@ export const SOSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             accuracy: location?.accuracy,
           };
 
-          // 4. Save to SQLite
+          // 4. Save to SQLite and Sync Queue
           DatabaseService.createIncident(newIncident);
           if (location) {
             DatabaseService.addLocation(location);
           }
+
+          DatabaseService.addToSyncQueue({
+            id: 'sq_inc_' + Date.now().toString() + Math.random().toString(36).substring(7),
+            type: 'INCIDENT_UPDATE',
+            entityId: newIncident.id,
+            payload: JSON.stringify(newIncident),
+            createdAt: new Date().toISOString(),
+            retryCount: 0,
+            status: 'PENDING'
+          });
+
+          // Trigger queue processing asynchronously
+          SyncService.processQueue().catch(e => console.error('[SOSContext] Sync error:', e));
 
           // 5. Send Background SMS — includes SafeHer live tracking link
           if (Platform.OS === 'android') {
@@ -377,11 +394,17 @@ export const SOSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  const triggerSOS = useCallback(async (triggerType: 'manual' | 'shake_trigger' | 'scream_trigger' | 'safe_word' = 'manual') => {
+  const triggerSOS = useCallback(async (triggerType: any = 'manual') => {
+    let resolvedType: 'manual' | 'shake_trigger' | 'scream_trigger' | 'safe_word' = 'manual';
+    if (triggerType === 'shake_trigger' || triggerType === 'scream_trigger' || triggerType === 'safe_word') {
+      resolvedType = triggerType;
+    }
+
     if (state.engineState === 'IDLE') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      dispatch({ type: 'TRIGGER_SOS' });
-      // In a real app, we might store the triggerType in a temporary ref to use during confirmation
+      if (resolvedType !== 'safe_word') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      }
+      dispatch({ type: 'TRIGGER_SOS', payload: resolvedType });
     }
   }, [state.engineState]);
 
@@ -411,23 +434,25 @@ export const SOSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ShakeDetectionService.startListening();
       AudioDistressService.startListening();
       
-      // Native Background Shake Listener disabled for stable build
-      /*
+      // Native Background Shake Listener
       const emitter = new EventEmitter(SafeherBackgroundModule);
       // @ts-ignore
       const bgSub = emitter.addListener('onBackgroundShake', () => {
+        console.log('[SOSContext] Background shake detected! Triggering SOS...');
         triggerSOS('shake_trigger');
       });
       
       try {
+        console.log('[SOSContext] Starting SafeherBackgroundModule...');
         SafeherBackgroundModule.startService();
       } catch (e) {
         console.error("Could not start bg service:", e);
       }
-      */
       
       return () => {
-        // bgSub.remove();
+        try {
+          bgSub.remove();
+        } catch (e) {}
       };
     };
 
@@ -459,6 +484,21 @@ export const SOSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (state.engineState === 'ACTIVE' && state.activeIncident) {
       const resolvedAt = new Date().toISOString();
       DatabaseService.updateIncidentStatus(state.activeIncident.id, 'resolved', resolvedAt);
+      
+      const updatedIncident = DatabaseService.getIncidentById(state.activeIncident.id);
+      if (updatedIncident) {
+        DatabaseService.addToSyncQueue({
+          id: 'sq_inc_res_' + Date.now().toString() + Math.random().toString(36).substring(7),
+          type: 'INCIDENT_UPDATE',
+          entityId: updatedIncident.id,
+          payload: JSON.stringify(updatedIncident),
+          createdAt: new Date().toISOString(),
+          retryCount: 0,
+          status: 'PENDING'
+        });
+        SyncService.processQueue().catch(e => console.error('[SOSContext] Sync error:', e));
+      }
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       dispatch({ type: 'RESOLVE_SOS' });
     }

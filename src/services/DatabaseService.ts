@@ -105,7 +105,7 @@ export const DatabaseService = {
   updateIncidentStatus: (id: string, status: string, resolvedAt?: string) => {
     const statement = db.prepareSync(`
       UPDATE incidents 
-      SET status = $status, resolvedAt = $resolvedAt
+      SET status = $status, resolvedAt = $resolvedAt, synced = 0
       WHERE id = $id
     `);
     statement.executeSync({
@@ -113,6 +113,20 @@ export const DatabaseService = {
       $status: status,
       $resolvedAt: resolvedAt || null,
     });
+  },
+
+  markIncidentSynced: (id: string) => {
+    const statement = db.prepareSync('UPDATE incidents SET synced = 1 WHERE id = $id');
+    statement.executeSync({ $id: id });
+  },
+
+  getIncidentById: (id: string): Incident | null => {
+    const result = db.getFirstSync<any>('SELECT * FROM incidents WHERE id = ?', [id]);
+    if (!result) return null;
+    return {
+      ...result,
+      synced: result.synced === 1
+    };
   },
 
   // Add a location to an incident
@@ -137,13 +151,21 @@ export const DatabaseService = {
 
   // Get all incidents (newest first)
   getIncidents: (): Incident[] => {
-    return db.getAllSync<Incident>('SELECT * FROM incidents ORDER BY createdAt DESC');
+    const raw = db.getAllSync<any>('SELECT * FROM incidents ORDER BY createdAt DESC');
+    return raw.map(i => ({
+      ...i,
+      synced: i.synced === 1
+    }));
   },
   
   // Get latest active incident
   getActiveIncident: (): Incident | null => {
-    const result = db.getFirstSync<Incident>("SELECT * FROM incidents WHERE status = 'active' ORDER BY createdAt DESC LIMIT 1");
-    return result || null;
+    const result = db.getFirstSync<any>("SELECT * FROM incidents WHERE status = 'active' ORDER BY createdAt DESC LIMIT 1");
+    if (!result) return null;
+    return {
+      ...result,
+      synced: result.synced === 1
+    };
   },
 
   // ---- EVIDENCE OPERATIONS ----

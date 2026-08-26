@@ -19,19 +19,21 @@ class SafeherBackgroundModule : Module() {
     }
 
     Function("startService") {
-      val context = appContext.reactContext ?: return@Function
+      val context = appContext.reactContext ?: return@Function false
       val serviceIntent = Intent(context, ShakeForegroundService::class.java)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         context.startForegroundService(serviceIntent)
       } else {
         context.startService(serviceIntent)
       }
+      true
     }
 
     Function("stopService") {
-      val context = appContext.reactContext ?: return@Function
+      val context = appContext.reactContext ?: return@Function false
       val serviceIntent = Intent(context, ShakeForegroundService::class.java)
       context.stopService(serviceIntent)
+      true
     }
   }
 }

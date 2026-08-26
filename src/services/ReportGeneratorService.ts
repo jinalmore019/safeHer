@@ -63,6 +63,38 @@ export class ReportGeneratorService {
     const locations = DatabaseService.getLocationsForIncident(incident.id);
     const lastLoc = locations.length > 0 ? `${locations[locations.length-1].latitude}, ${locations[locations.length-1].longitude}` : 'Unknown Location';
 
+    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+    let aiDescription = "[Please write the detailed description of what happened here...]";
+
+    if (apiKey) {
+      try {
+        const prompt = `Draft a formal, factual, unbiased police First Information Report (FIR) description based on the following automated device telemetry. Keep it professional and under 250 words.
+Telemetry:
+- Incident Date: ${new Date(incident.createdAt).toLocaleString()}
+- Final Status: ${incident.status}
+- Trigger Method: ${incident.triggerType}
+- Last Known GPS: ${lastLoc}
+- Evidence Count: ${evidenceList.length} files captured.`;
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) aiDescription = text.replace(/\n/g, '<br/>');
+        }
+      } catch (e) {
+        console.error('[ReportGeneratorService] AI draft failed:', e);
+      }
+    }
+
     const htmlContent = `
       <html>
         <head>
@@ -93,8 +125,8 @@ export class ReportGeneratorService {
           </div>
 
           <div class="section">
-            <p><strong>Description of Events:</strong><br/>
-            [Please write the detailed description of what happened here...]</p>
+            <p><strong>Description of Events (AI Drafted based on Telemetry):</strong><br/>
+            ${aiDescription}</p>
           </div>
 
           <div class="section">

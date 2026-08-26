@@ -20,6 +20,8 @@ export class JourneySentinelService {
   private static isActive = false;
   private static status: JourneyStatus = 'SAFE';
   private static destination: { latitude: number, longitude: number } | null = null;
+  private static routePolyline: { latitude: number, longitude: number }[] | null = null;
+  private static deviationCount = 0;
   private static startTime = 0;
   private static lastLocation: LocationSnapshot | null = null;
   private static lastLocationTime = 0;
@@ -37,9 +39,11 @@ export class JourneySentinelService {
   static onCheckInRequested: (() => void) | null = null;
   static onSOSEscalation: (() => void) | null = null;
 
-  static async startJourney(dest: { latitude: number, longitude: number }) {
+  static async startJourney(dest: { latitude: number, longitude: number }, routePoints?: { latitude: number, longitude: number }[]) {
     this.isActive = true;
     this.destination = dest;
+    this.routePolyline = routePoints || null;
+    this.deviationCount = 0;
     this.status = 'SAFE';
     this.startTime = Date.now();
     this.lastCheckInTime = Date.now();
@@ -56,6 +60,7 @@ export class JourneySentinelService {
     this.isActive = false;
     this.status = 'COMPLETED';
     this.destination = null;
+    this.routePolyline = null;
     if (this.locationInterval) clearInterval(this.locationInterval);
     if (this.onStatusChange) this.onStatusChange(this.status);
   }
@@ -86,7 +91,24 @@ export class JourneySentinelService {
 
     const now = Date.now();
     
-    // 1. Check Unexpected Stop
+    // 1. Check Route Deviation
+    if (this.routePolyline && this.routePolyline.length > 0) {
+      const minRouteDist = this.minDistanceToPolyline(loc, this.routePolyline);
+      if (minRouteDist > this.settings.deviationThresholdMeters) {
+        this.deviationCount++;
+        if (this.deviationCount >= 2 && this.status !== 'ROUTE_DEVIATION' && this.status !== 'ESCALATING') {
+          this.updateStatus('ROUTE_DEVIATION');
+          if (this.onCheckInRequested) this.onCheckInRequested();
+        }
+      } else {
+        this.deviationCount = 0;
+        if (this.status === 'ROUTE_DEVIATION') {
+          this.updateStatus('SAFE'); // User returned to route
+        }
+      }
+    }
+
+    // 2. Check Unexpected Stop
     if (this.lastLocation) {
       const distToLast = this.calculateDistance(
         loc.latitude, loc.longitude,
@@ -156,5 +178,38 @@ export class JourneySentinelService {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 
     return R * c; // in metres
+  }
+
+  // Point to line segment distance approximation (Meters)
+  private static pointToLineDistanceMeters(pt: {latitude: number, longitude: number}, v: {latitude: number, longitude: number}, w: {latitude: number, longitude: number}) {
+    const deg2rad = Math.PI / 180;
+    const latR = v.latitude * deg2rad;
+    const x0 = pt.longitude * Math.cos(latR) * 111320;
+    const y0 = pt.latitude * 111320;
+    const x1 = v.longitude * Math.cos(latR) * 111320;
+    const y1 = v.latitude * 111320;
+    const x2 = w.longitude * Math.cos(latR) * 111320;
+    const y2 = w.latitude * 111320;
+
+    const l2 = (x2 - x1)**2 + (y2 - y1)**2;
+    if (l2 === 0) return Math.sqrt((x0 - x1)**2 + (y0 - y1)**2);
+
+    let t = ((x0 - x1) * (x2 - x1) + (y0 - y1) * (y2 - y1)) / l2;
+    t = Math.max(0, Math.min(1, t));
+
+    const projX = x1 + t * (x2 - x1);
+    const projY = y1 + t * (y2 - y1);
+
+    return Math.sqrt((x0 - projX)**2 + (y0 - projY)**2);
+  }
+
+  private static minDistanceToPolyline(loc: {latitude: number, longitude: number}, polyline: {latitude: number, longitude: number}[]) {
+    if (polyline.length === 1) return this.calculateDistance(loc.latitude, loc.longitude, polyline[0].latitude, polyline[0].longitude);
+    let minDist = Infinity;
+    for (let i = 0; i < polyline.length - 1; i++) {
+      const d = this.pointToLineDistanceMeters(loc, polyline[i], polyline[i+1]);
+      if (d < minDist) minDist = d;
+    }
+    return minDist;
   }
 }

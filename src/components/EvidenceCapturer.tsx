@@ -84,7 +84,7 @@ export function EvidenceCapturer({ incidentId, userId, onEvidenceCaptured }: Evi
         );
         recordingRef.current = recording;
 
-        // Record for 10 seconds, then stop
+        // Record for 30 seconds, then stop
         setTimeout(async () => {
           if (recordingRef.current) {
             await recordingRef.current.stopAndUnloadAsync();
@@ -117,7 +117,7 @@ export function EvidenceCapturer({ incidentId, userId, onEvidenceCaptured }: Evi
             }
           }
           if (onEvidenceCaptured) onEvidenceCaptured();
-        }, 10000); // 10 seconds duration
+        }, 30000); // 30 seconds duration
       } else {
         if (onEvidenceCaptured) onEvidenceCaptured();
       }

@@ -30,6 +30,7 @@ export const SyncService = {
           } else if (item.type === 'INCIDENT_UPDATE') {
             const incident = JSON.parse(item.payload);
             await FirebaseService.syncIncident(incident);
+            DatabaseService.markIncidentSynced(incident.id);
           }
 
           // Mark as synced

@@ -16,6 +16,11 @@ export const RoutingService = {
     try {
       if (!address || !address.trim()) return null;
       
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        throw new Error('Location permissions are required to geocode address.');
+      }
+
       const results = await Location.geocodeAsync(address);
       if (results && results.length > 0) {
         return {

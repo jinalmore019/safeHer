@@ -39,3 +39,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# local builds & firebase
+safeher.apk
+.firebase/
+.gradle/
+**/build/
+**/.gradle/
