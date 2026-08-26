@@ -1,27 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, TextInput, ActivityIndicator, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius } from '../design/tokens';
 import { JourneySentinelService, JourneyStatus } from '../services/JourneySentinelService';
 import { LocationService } from '../services/LocationService';
+import { RoutingService } from '../services/RoutingService';
+import { SafetyScoringService, SafetyScoreResult, COMMUNITY_DANGER_ZONES } from '../services/SafetyScoringService';
 import MapView, { Marker, Polyline, Circle } from 'react-native-maps';
 import { Card } from '../components/ui';
 
 export default function JourneyScreen() {
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState<JourneyStatus>('SAFE');
-  const [destLat, setDestLat] = useState('28.6139');
-  const [destLon, setDestLon] = useState('77.2090'); // New Delhi default
+  
+  const [sourceAddress, setSourceAddress] = useState('');
+  const [destAddress, setDestAddress] = useState('');
+  
+  const [sourceCoords, setSourceCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [destCoords, setDestCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  
+  const [routeCoords, setRouteCoords] = useState<{ latitude: number; longitude: number }[]>([]);
+  const [distanceText, setDistanceText] = useState('');
+  const [durationText, setDurationText] = useState('');
+  
+  const [safetyScoreInfo, setSafetyScoreInfo] = useState<SafetyScoreResult | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
   const [currentLoc, setCurrentLoc] = useState<any>(null);
   const [inDangerZone, setInDangerZone] = useState(false);
 
-  // Simulated Danger Zones (Low Light / High Crime areas)
-  const dangerZones = [
-    { id: 1, latitude: 28.6150, longitude: 77.2100, radius: 200 },
-    { id: 2, latitude: 28.6100, longitude: 77.2050, radius: 300 }
-  ];
-
-  // Helper to calculate distance
+  // Helper to calculate distance locally
   const getDistanceFromLatLonInM = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     var R = 6371e3; // Radius of the earth in m
     var dLat = (lat2-lat1) * (Math.PI/180);
@@ -61,7 +68,7 @@ export default function JourneyScreen() {
 
         // Check if user is in danger zone
         let isInZone = false;
-        for (const zone of dangerZones) {
+        for (const zone of COMMUNITY_DANGER_ZONES) {
           const dist = getDistanceFromLatLonInM(cloc.latitude, cloc.longitude, zone.latitude, zone.longitude);
           if (dist <= zone.radius) {
             isInZone = true;
@@ -89,20 +96,94 @@ export default function JourneyScreen() {
   }, []);
 
   const handleStart = async () => {
-    const lat = parseFloat(destLat);
-    const lon = parseFloat(destLon);
-    if (isNaN(lat) || isNaN(lon)) {
-      Alert.alert('Error', 'Invalid destination coordinates');
+    if (!sourceAddress.trim() || !destAddress.trim()) {
+      Alert.alert('Validation Error', 'Please enter both source and destination locations.');
       return;
     }
-    await JourneySentinelService.startJourney({ latitude: lat, longitude: lon });
-    setIsActive(true);
+
+    setIsSearching(true);
+    try {
+      // 1. Geocode Source
+      const resolvedSource = await RoutingService.geocodeAddress(sourceAddress);
+      if (!resolvedSource) {
+        Alert.alert(
+          'Location Not Found',
+          `Could not resolve coordinates for source: "${sourceAddress}". Please try being more specific.`
+        );
+        setIsSearching(false);
+        return;
+      }
+
+      // 2. Geocode Destination
+      const resolvedDest = await RoutingService.geocodeAddress(destAddress);
+      if (!resolvedDest) {
+        Alert.alert(
+          'Location Not Found',
+          `Could not resolve coordinates for destination: "${destAddress}". Please try being more specific.`
+        );
+        setIsSearching(false);
+        return;
+      }
+
+      // 3. Same location validation
+      const distanceBetweenPoints = SafetyScoringService.calculateDistance(
+        resolvedSource.latitude, resolvedSource.longitude,
+        resolvedDest.latitude, resolvedDest.longitude
+      );
+
+      if (distanceBetweenPoints < 15) {
+        Alert.alert('Validation Error', 'Source and destination locations are too close to each other. Please select different points.');
+        setIsSearching(false);
+        return;
+      }
+
+      // 4. Calculate Route
+      const routeInfo = await RoutingService.calculateRoute(resolvedSource, resolvedDest);
+
+      // 5. Calculate Safety Score
+      const safetyResult = SafetyScoringService.calculateSafetyScore(routeInfo.coordinates);
+
+      // 6. Update Screen State
+      setSourceCoords(resolvedSource);
+      setDestCoords(resolvedDest);
+      setRouteCoords(routeInfo.coordinates);
+      setDistanceText(`${routeInfo.distanceKm} km`);
+      setDurationText(`${routeInfo.durationMinutes} mins`);
+      setSafetyScoreInfo(safetyResult);
+
+      // Adjust Map view to frame both points
+      setCurrentLoc({
+        latitude: (resolvedSource.latitude + resolvedDest.latitude) / 2,
+        longitude: (resolvedSource.longitude + resolvedDest.longitude) / 2,
+        latitudeDelta: Math.abs(resolvedSource.latitude - resolvedDest.latitude) * 1.5 || 0.05,
+        longitudeDelta: Math.abs(resolvedSource.longitude - resolvedDest.longitude) * 1.5 || 0.05,
+      });
+
+      // Start sentinel monitoring on destination
+      await JourneySentinelService.startJourney(resolvedDest);
+      setIsActive(true);
+
+    } catch (e: any) {
+      console.error(e);
+      Alert.alert(
+        'Route Error',
+        e.message || 'Failed to compute route. Please verify your internet connection and try again.'
+      );
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleEnd = async () => {
     await JourneySentinelService.endJourney();
     setIsActive(false);
     setStatus('COMPLETED');
+    setSourceCoords(null);
+    setDestCoords(null);
+    setRouteCoords([]);
+    setDistanceText('');
+    setDurationText('');
+    setSafetyScoreInfo(null);
   };
 
   const renderStatusBadge = () => {
@@ -122,26 +203,40 @@ export default function JourneyScreen() {
       <Text style={styles.header}>Journey Sentinel</Text>
       
       {!isActive ? (
-        <View style={styles.setupContainer}>
-          <Text style={styles.label}>Destination Latitude</Text>
-          <TextInput
-            style={styles.input}
-            value={destLat}
-            onChangeText={setDestLat}
-            keyboardType="numeric"
-          />
-          <Text style={styles.label}>Destination Longitude</Text>
-          <TextInput
-            style={styles.input}
-            value={destLon}
-            onChangeText={setDestLon}
-            keyboardType="numeric"
-          />
-          
-          <TouchableOpacity style={styles.startBtn} onPress={handleStart}>
-            <Text style={styles.startBtnText}>Start Safe Journey</Text>
-          </TouchableOpacity>
-        </View>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <View style={styles.setupContainer}>
+            <Text style={styles.label}>Source Location</Text>
+            <TextInput
+              style={styles.input}
+              value={sourceAddress}
+              onChangeText={setSourceAddress}
+              placeholder="Enter starting point (e.g. Rajkot Railway Station)"
+              placeholderTextColor="#8888aa"
+              editable={!isSearching}
+            />
+            <Text style={styles.label}>Destination Location</Text>
+            <TextInput
+              style={styles.input}
+              value={destAddress}
+              onChangeText={setDestAddress}
+              placeholder="Enter destination (e.g. Crystal Mall Rajkot)"
+              placeholderTextColor="#8888aa"
+              editable={!isSearching}
+            />
+            
+            <TouchableOpacity 
+              style={[styles.startBtn, isSearching && styles.disabledBtn]} 
+              onPress={handleStart}
+              disabled={isSearching}
+            >
+              {isSearching ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.startBtnText}>Find Safe Route</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       ) : (
         <View style={styles.activeContainer}>
           <Card style={styles.statusCard}>
@@ -154,13 +249,55 @@ export default function JourneyScreen() {
             </Text>
           </Card>
 
+          {/* Route Info Badge */}
+          {distanceText ? (
+            <Card style={styles.infoCard}>
+              <Text style={styles.metaText}>📍 {sourceAddress} → 🏁 {destAddress}</Text>
+              <Text style={styles.metaText}>📏 Distance: {distanceText}  |  ⏱️ ETA: {durationText}</Text>
+            </Card>
+          ) : null}
+
+          {/* Safe Route Safety Score Card (Pluggable Abstraction) */}
+          {safetyScoreInfo ? (
+            <Card style={StyleSheet.flatten([
+              styles.statusCard, 
+              { 
+                backgroundColor: safetyScoreInfo.rating === 'EXCELLENT' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255, 149, 0, 0.1)', 
+                borderColor: safetyScoreInfo.rating === 'EXCELLENT' ? '#22c55e' : '#FF9500', 
+                borderWidth: 1 
+              }
+            ])}>
+              <View style={styles.statusRow}>
+                <Text style={[styles.statusLabel, { color: safetyScoreInfo.rating === 'EXCELLENT' ? '#22c55e' : '#FF9500' }]}>
+                  🛡️ Safety Rating: {safetyScoreInfo.rating} ({safetyScoreInfo.score}/100)
+                </Text>
+              </View>
+              {safetyScoreInfo.intersectedZones.length > 0 ? (
+                <View>
+                  <Text style={styles.infoText}>
+                    This route intersects with community warnings:
+                  </Text>
+                  {safetyScoreInfo.intersectedZones.map(zone => (
+                    <Text key={zone.id} style={styles.warningDetailText}>
+                      • {zone.name} ({zone.riskFactors.join(', ')})
+                    </Text>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.infoText}>
+                  Your calculated route avoids all currently reported community danger corridors.
+                </Text>
+              )}
+            </Card>
+          ) : null}
+
           {inDangerZone && (
             <Card style={StyleSheet.flatten([styles.statusCard, { backgroundColor: 'rgba(255, 59, 48, 0.1)', borderColor: '#FF3B30', borderWidth: 1 }])}>
               <View style={styles.statusRow}>
                 <Text style={[styles.statusLabel, { color: '#FF3B30' }]}>⚠️ DANGER ZONE ALERT</Text>
               </View>
               <Text style={styles.infoText}>
-                You are entering a high-risk area reported by the community (Low Streetlights/Isolated). Stay alert.
+                You are entering a high-risk area reported by the community. Stay alert.
               </Text>
             </Card>
           )}
@@ -172,16 +309,30 @@ export default function JourneyScreen() {
                 region={currentLoc}
                 showsUserLocation={true}
               >
-                <Marker coordinate={{ latitude: parseFloat(destLat), longitude: parseFloat(destLon) }} title="Destination" />
+                {sourceCoords && (
+                  <Marker coordinate={sourceCoords} title="Source" pinColor="#22c55e" />
+                )}
+                {destCoords && (
+                  <Marker coordinate={destCoords} title="Destination" />
+                )}
+                
+                {/* Draw Route Polyline */}
+                {routeCoords.length > 0 && (
+                  <Polyline
+                    coordinates={routeCoords}
+                    strokeColor={Colors.brand.primary}
+                    strokeWidth={4}
+                  />
+                )}
                 
                 {/* Danger Zone Overlays */}
-                {dangerZones.map(zone => (
+                {COMMUNITY_DANGER_ZONES.map(zone => (
                   <Circle
                     key={zone.id}
                     center={{ latitude: zone.latitude, longitude: zone.longitude }}
                     radius={zone.radius}
-                    fillColor="rgba(255, 59, 48, 0.3)" // Transparent Red
-                    strokeColor="rgba(255, 59, 48, 0.8)"
+                    fillColor="rgba(255, 59, 48, 0.2)"
+                    strokeColor="rgba(255, 59, 48, 0.6)"
                     strokeWidth={2}
                   />
                 ))}
@@ -204,6 +355,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bg.primary,
     padding: Spacing.lg,
   },
+  scrollContent: {
+    flexGrow: 1,
+  },
   header: {
     fontSize: Typography.sizes.xl,
     fontWeight: Typography.weights.bold,
@@ -213,6 +367,7 @@ const styles = StyleSheet.create({
   setupContainer: {
     flex: 1,
     justifyContent: 'center',
+    paddingVertical: Spacing.xl,
   },
   label: {
     fontSize: Typography.sizes.sm,
@@ -234,6 +389,11 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     alignItems: 'center',
     marginTop: Spacing.lg,
+    justifyContent: 'center',
+    minHeight: 54,
+  },
+  disabledBtn: {
+    opacity: 0.7,
   },
   startBtnText: {
     color: '#fff',
@@ -244,7 +404,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statusCard: {
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  infoCard: {
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.bg.card,
+    borderWidth: 1,
+    borderColor: Colors.ui.border,
   },
   statusRow: {
     flexDirection: 'row',
@@ -271,6 +437,18 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
     fontSize: Typography.sizes.sm,
     lineHeight: 20,
+  },
+  metaText: {
+    color: Colors.text.primary,
+    fontSize: Typography.sizes.sm,
+    fontWeight: Typography.weights.semibold,
+    lineHeight: 22,
+  },
+  warningDetailText: {
+    color: '#FF9500',
+    fontSize: Typography.sizes.xs,
+    marginTop: 4,
+    fontWeight: Typography.weights.medium,
   },
   mapContainer: {
     flex: 1,
