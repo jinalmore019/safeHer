@@ -1,25 +1,74 @@
 {
   "expo": {
     "name": "SafeHer",
-    "slug": "SafeHer",
+    "slug": "safeher",
     "version": "1.0.0",
+    "sdkVersion": "57.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "scheme": "safeher",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.safeher.app"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#0D0D1A"
       },
-      "predictiveBackGestureEnabled": false
+      "package": "com.safeher.app",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.SEND_SMS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.VIBRATE",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0D0D1A",
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain"
+        }
+      ],
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-sharing",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow SafeHer to access your camera for emergency evidence collection."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow SafeHer to use your location for emergency tracking and safe route monitoring."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow SafeHer to access your microphone for distress scream detection."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "bbe24de7-d4e8-44e1-8b81-c5c36d67e879"
+      }
+    },
+    "owner": "laxitsankhat"
   }
 }
