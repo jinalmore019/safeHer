@@ -84,77 +84,81 @@ export class JourneySentinelService {
   }
 
   private static async evaluateJourney() {
-    if (!this.isActive) return;
+    try {
+      if (!this.isActive) return;
 
-    const loc = await LocationService.getCurrentLocation();
-    if (!loc) return;
+      const loc = await LocationService.getCurrentLocation();
+      if (!loc) return;
 
-    const now = Date.now();
-    
-    // 1. Check Route Deviation
-    if (this.routePolyline && this.routePolyline.length > 0) {
-      const minRouteDist = this.minDistanceToPolyline(loc, this.routePolyline);
-      if (minRouteDist > this.settings.deviationThresholdMeters) {
-        this.deviationCount++;
-        if (this.deviationCount >= 2 && this.status !== 'ROUTE_DEVIATION' && this.status !== 'ESCALATING') {
-          this.updateStatus('ROUTE_DEVIATION');
-          if (this.onCheckInRequested) this.onCheckInRequested();
-        }
-      } else {
-        this.deviationCount = 0;
-        if (this.status === 'ROUTE_DEVIATION') {
-          this.updateStatus('SAFE'); // User returned to route
+      const now = Date.now();
+      
+      // 1. Check Route Deviation
+      if (this.routePolyline && this.routePolyline.length > 0) {
+        const minRouteDist = this.minDistanceToPolyline(loc, this.routePolyline);
+        if (minRouteDist > this.settings.deviationThresholdMeters) {
+          this.deviationCount++;
+          if (this.deviationCount >= 2 && this.status !== 'ROUTE_DEVIATION' && this.status !== 'ESCALATING') {
+            this.updateStatus('ROUTE_DEVIATION');
+            if (this.onCheckInRequested) this.onCheckInRequested();
+          }
+        } else {
+          this.deviationCount = 0;
+          if (this.status === 'ROUTE_DEVIATION') {
+            this.updateStatus('SAFE'); // User returned to route
+          }
         }
       }
-    }
 
-    // 2. Check Unexpected Stop
-    if (this.lastLocation) {
-      const distToLast = this.calculateDistance(
-        loc.latitude, loc.longitude,
-        this.lastLocation.latitude, this.lastLocation.longitude
-      );
+      // 2. Check Unexpected Stop
+      if (this.lastLocation) {
+        const distToLast = this.calculateDistance(
+          loc.latitude, loc.longitude,
+          this.lastLocation.latitude, this.lastLocation.longitude
+        );
 
-      // If moved less than 15 meters since last check
-      if (distToLast < 15) {
-        const timeStopped = (now - this.lastLocationTime) / 60000;
-        if (timeStopped >= this.settings.stopThresholdMinutes && this.status === 'SAFE') {
-          this.updateStatus('UNEXPECTED_STOP');
+        // If moved less than 15 meters since last check
+        if (distToLast < 15) {
+          const timeStopped = (now - this.lastLocationTime) / 60000;
+          if (timeStopped >= this.settings.stopThresholdMinutes && this.status === 'SAFE') {
+            this.updateStatus('UNEXPECTED_STOP');
+          }
+        } else {
+          // We are moving
+          this.lastLocation = loc;
+          this.lastLocationTime = now;
+          if (this.status === 'UNEXPECTED_STOP') this.updateStatus('SAFE');
         }
       } else {
-        // We are moving
         this.lastLocation = loc;
         this.lastLocationTime = now;
-        if (this.status === 'UNEXPECTED_STOP') this.updateStatus('SAFE');
       }
-    } else {
-      this.lastLocation = loc;
-      this.lastLocationTime = now;
-    }
 
-    // 2. Check Journey Check-in
-    const minsSinceCheckIn = (now - this.lastCheckInTime) / 60000;
-    if (minsSinceCheckIn >= this.settings.checkInIntervalMinutes) {
-      if (this.status === 'SAFE' || this.status === 'UNEXPECTED_STOP') {
-        this.updateStatus('CHECK_IN_REQUIRED');
-        if (this.onCheckInRequested) this.onCheckInRequested();
-      } else if (this.status === 'CHECK_IN_REQUIRED') {
-        // Grace period expired (e.g., 2 mins past check-in time)
-        if (minsSinceCheckIn >= this.settings.checkInIntervalMinutes + 2) {
-          this.escalateToSOS('Journey check-in missed');
+      // 2. Check Journey Check-in
+      const minsSinceCheckIn = (now - this.lastCheckInTime) / 60000;
+      if (minsSinceCheckIn >= this.settings.checkInIntervalMinutes) {
+        if (this.status === 'SAFE' || this.status === 'UNEXPECTED_STOP') {
+          this.updateStatus('CHECK_IN_REQUIRED');
+          if (this.onCheckInRequested) this.onCheckInRequested();
+        } else if (this.status === 'CHECK_IN_REQUIRED') {
+          // Grace period expired (e.g., 2 mins past check-in time)
+          if (minsSinceCheckIn >= this.settings.checkInIntervalMinutes + 2) {
+            this.escalateToSOS('Journey check-in missed');
+          }
         }
       }
-    }
 
-    // 3. Destination Reached
-    if (this.destination) {
-      const distToDest = this.calculateDistance(
-        loc.latitude, loc.longitude,
-        this.destination.latitude, this.destination.longitude
-      );
-      if (distToDest < 100) { // within 100 meters
-        await this.endJourney();
+      // 3. Destination Reached
+      if (this.destination) {
+        const distToDest = this.calculateDistance(
+          loc.latitude, loc.longitude,
+          this.destination.latitude, this.destination.longitude
+        );
+        if (distToDest < 100) { // within 100 meters
+          await this.endJourney();
+        }
       }
+    } catch (e) {
+      console.error('[JourneySentinel] Error in evaluateJourney', e);
     }
   }
 

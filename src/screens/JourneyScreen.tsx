@@ -156,7 +156,19 @@ export default function JourneyScreen() {
       // 6. Update Screen State
       setSourceCoords(resolvedSource);
       setDestCoords(resolvedDest);
-      setRouteCoords(routeInfo.coordinates);
+      
+      // Simplify route coordinates for safe rendering on map
+      const maxRenderPoints = 200;
+      let renderedCoords = routeInfo.coordinates;
+      if (routeInfo.coordinates.length > maxRenderPoints) {
+        const step = Math.ceil(routeInfo.coordinates.length / maxRenderPoints);
+        renderedCoords = routeInfo.coordinates.filter((_, idx) => idx % step === 0);
+        if (routeInfo.coordinates.length > 0 && renderedCoords[renderedCoords.length - 1] !== routeInfo.coordinates[routeInfo.coordinates.length - 1]) {
+          renderedCoords.push(routeInfo.coordinates[routeInfo.coordinates.length - 1]);
+        }
+      }
+      setRouteCoords(renderedCoords);
+
       setDistanceText(`${routeInfo.distanceKm} km`);
       setDurationText(`${routeInfo.durationMinutes} mins`);
       setSafetyScoreInfo(safetyResult);
