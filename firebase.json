@@ -9,6 +9,13 @@
       "**/.*",
       "**/node_modules/**"
     ],
+    "redirects": [
+      {
+        "source": "/download",
+        "destination": "https://expo.dev/artifacts/eas/vXHQ2KeJakcpDbjhP9t3CgwZRahvwwM6booLBlGU8KI.apk",
+        "type": 302
+      }
+    ],
     "rewrites": [
       {
         "source": "/track/**",

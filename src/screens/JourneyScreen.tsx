@@ -27,6 +27,7 @@ export default function JourneyScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [currentLoc, setCurrentLoc] = useState<any>(null);
   const [inDangerZone, setInDangerZone] = useState(false);
+  const [hasLocationPermission, setHasLocationPermission] = useState(false);
 
   // Helper to calculate distance locally
   const getDistanceFromLatLonInM = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -45,6 +46,7 @@ export default function JourneyScreen() {
   useEffect(() => {
     const initLocation = async () => {
       const hasPermission = await LocationService.requestPermissions();
+      setHasLocationPermission(hasPermission);
       if (hasPermission) {
         const loc = await LocationService.getCurrentLocation();
         if (loc) {
@@ -315,7 +317,7 @@ export default function JourneyScreen() {
               <MapView 
                 style={styles.map} 
                 region={currentLoc}
-                showsUserLocation={true}
+                showsUserLocation={hasLocationPermission}
               >
                 {sourceCoords && (
                   <Marker coordinate={sourceCoords} title="Source" pinColor="#22c55e" />

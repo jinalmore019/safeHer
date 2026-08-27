@@ -30,8 +30,27 @@ export const RoutingService = {
       }
       return null;
     } catch (error) {
-      console.error(`[RoutingService] Geocoding failed for: ${address}`, error);
-      throw error;
+      console.warn(`[RoutingService] Native geocoding failed for: "${address}". Trying Nominatim API fallback...`, error);
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'SafeHer-App-V1'
+          }
+        });
+        const data = await response.json();
+        if (data && data.length > 0) {
+          console.log(`[RoutingService] Nominatim fallback successfully resolved: "${address}"`);
+          return {
+            latitude: parseFloat(data[0].lat),
+            longitude: parseFloat(data[0].lon)
+          };
+        }
+        return null;
+      } catch (fallbackError) {
+        console.error(`[RoutingService] Nominatim fallback also failed for: "${address}"`, fallbackError);
+        throw error;
+      }
     }
   },
 

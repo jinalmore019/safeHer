@@ -9,9 +9,7 @@
   <!-- Leaflet CSS -->
   <link
     rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
+    href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"
   />
 
   <style>
@@ -252,21 +250,13 @@
   <div class="powered-by">Powered by SafeHer · Emergency response platform</div>
 
   <!-- Leaflet JS -->
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WLs="
-    crossorigin=""></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 
   <!-- Firebase JS SDK (CDN) -->
-  <script type="module">
-    import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js';
-    import {
-      getFirestore,
-      doc,
-      getDoc,
-      onSnapshot
-    } from 'https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js';
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.8.0/firebase-firestore-compat.js"></script>
 
+  <script>
     // ── Firebase project config (public — same project as the app) ──
     const firebaseConfig = {
       apiKey: "AIzaSyDfUnEPyz0jhih9-qlN1S0405xa-1tFpnA",
@@ -277,8 +267,15 @@
       appId: "1:1011173684731:web:fc749a234e5672e64f075e"
     };
 
-    const app = initializeApp(firebaseConfig);
-    const db  = getFirestore(app);
+    let db = null;
+    try {
+      if (typeof firebase !== 'undefined') {
+        const app = firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+      }
+    } catch (e) {
+      console.error('Firebase initialization failed', e);
+    }
 
     // ── DOM refs ──
     const overlay      = document.getElementById('overlay');
@@ -301,122 +298,166 @@
       overlayMsg.textContent   = msg;
     }
 
-    // ── Read token from URL hash ──
-    const token = location.hash.replace(/^#/, '').trim();
-
-    if (!token) {
-      showError('No Tracking Token', 'This link appears to be incomplete. Please ask the sender to re-send the original SafeHer emergency message.');
-      throw new Error('No token in URL hash');
-    }
-
-    // ── Initialise Leaflet map (hidden behind overlay for now) ──
-    const map = L.map('map', { zoomControl: true, attributionControl: false }).setView([20.5937, 78.9629], 5);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap'
-    }).addTo(map);
-
-    // Custom red marker
-    const markerIcon = L.divIcon({
-      html: `<div style="
-        width:18px;height:18px;border-radius:50%;
-        background:linear-gradient(135deg,#e5335a,#c41d47);
-        border:3px solid white;
-        box-shadow:0 0 12px rgba(229,51,90,0.7);
-      "></div>`,
-      className: '',
-      iconSize: [18, 18],
-      iconAnchor: [9, 9]
-    });
-
-    let marker = null;
-
-    function moveTo(lat, lng) {
-      if (!marker) {
-        marker = L.marker([lat, lng], { icon: markerIcon }).addTo(map);
-      } else {
-        marker.setLatLng([lat, lng]);
+    (async () => {
+      // ── Read token from URL hash ──
+      let token = location.hash.replace(/^#/, '').trim();
+      const isDemoMode = !token || token === 'demo';
+      if (isDemoMode) {
+        token = 'demo';
       }
-      map.setView([lat, lng], Math.max(map.getZoom(), 15));
-    }
 
-    function formatTime(iso) {
-      if (!iso) return '—';
+      // ── Initialise Leaflet map (hidden behind overlay for now) ──
+      let map = null;
+      let markerIcon = null;
+
       try {
-        return new Date(iso).toLocaleString('en-IN', {
-          timeZone: 'Asia/Kolkata',
-          hour12: true,
-          hour: '2-digit', minute: '2-digit', second: '2-digit',
-          day: '2-digit', month: 'short'
-        });
-      } catch { return iso; }
-    }
+        if (typeof L !== 'undefined') {
+          map = L.map('map', { zoomControl: true, attributionControl: false }).setView([20.5937, 78.9629], 5);
 
-    function setStatus(incidentStatus) {
-      const isActive = incidentStatus === 'active';
-      statusDot.className = 'pulse-dot' + (isActive ? ' live' : '');
-      statusDot.style.background = isActive ? '#e5335a' : '#22c55e';
-      statusText.textContent = isActive ? '🔴 EMERGENCY ACTIVE — Live tracking' : '✅ Emergency Resolved';
-      statusBanner.style.background = isActive ? 'rgba(229,51,90,0.12)' : 'rgba(34,197,94,0.10)';
-      statusVal.textContent = incidentStatus?.toUpperCase() ?? '—';
-      statusVal.style.color = isActive ? '#e5335a' : '#22c55e';
-      headerSub.textContent = isActive ? 'Live location updating every 5 s' : 'Incident resolved';
-    }
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+          }).addTo(map);
 
-    // ── Step 1: Resolve token → incidentId ──
-    let unsubscribe = null;
-
-    try {
-      const tokenDoc = await getDoc(doc(db, 'tracking_tokens', token));
-
-      if (!tokenDoc.exists()) {
-        showError('Link Not Found', 'This tracking link is invalid or has expired. Please ask the sender to re-send the emergency message.');
-        throw new Error('Token document not found');
+          // Custom red marker
+          markerIcon = L.divIcon({
+            html: `<div style="
+              width:18px;height:18px;border-radius:50%;
+              background:linear-gradient(135deg,#e5335a,#c41d47);
+              border:3px solid white;
+              box-shadow:0 0 12px rgba(229,51,90,0.7);
+            "></div>`,
+            className: '',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9]
+          });
+        }
+      } catch (e) {
+        console.error('Leaflet initialization failed', e);
       }
 
-      const { incidentId } = tokenDoc.data();
+      let marker = null;
 
-      // ── Step 2: Subscribe to the incident document ──
-      unsubscribe = onSnapshot(doc(db, 'incidents', incidentId), (snap) => {
-        if (!snap.exists()) {
-          showError('Incident Not Found', 'The emergency record could not be found in the database.');
+      function moveTo(lat, lng) {
+        if (!map || typeof L === 'undefined' || !markerIcon) {
+          console.warn('Map not initialized or Leaflet blocked');
           return;
         }
-
-        const data = snap.data();
-
-        // Hide overlay once we have data
-        overlay.classList.add('hidden');
-
-        // Update status
-        setStatus(data.status);
-
-        // Update map and info cards
-        const loc = data.latestLocation;
-        if (loc?.latitude && loc?.longitude) {
-          moveTo(loc.latitude, loc.longitude);
-          latVal.textContent   = loc.latitude.toFixed(6);
-          lngVal.textContent   = loc.longitude.toFixed(6);
-          updatedVal.textContent = formatTime(loc.timestamp);
-        } else if (data.latitude && data.longitude) {
-          // Fall back to incident-level coords if no latestLocation yet
-          moveTo(data.latitude, data.longitude);
-          latVal.textContent = data.latitude.toFixed(6);
-          lngVal.textContent = data.longitude.toFixed(6);
-          updatedVal.textContent = formatTime(data.confirmedAt);
+        try {
+          if (!marker) {
+            marker = L.marker([lat, lng], { icon: markerIcon }).addTo(map);
+          } else {
+            marker.setLatLng([lat, lng]);
+          }
+          map.setView([lat, lng], Math.max(map.getZoom(), 15));
+        } catch (err) {
+          console.error('Failed to move marker', err);
         }
-      }, (err) => {
-        console.error('Firestore listener error', err);
-        showError('Connection Error', 'Could not connect to the live location service. Please check your internet connection.');
-      });
-
-    } catch (e) {
-      if (!overlayTitle.textContent.startsWith('Link') && !overlayTitle.textContent.startsWith('Incident') && !overlayTitle.textContent.startsWith('Connection')) {
-        showError('Error', 'An unexpected error occurred. Please try again.');
       }
-      console.error(e);
-    }
+
+      function formatTime(iso) {
+        if (!iso) return '—';
+        try {
+          return new Date(iso).toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            hour12: true,
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            day: '2-digit', month: 'short'
+          });
+        } catch { return iso; }
+      }
+
+      function setStatus(incidentStatus) {
+        const isActive = incidentStatus === 'active';
+        statusDot.className = 'pulse-dot' + (isActive ? ' live' : '');
+        statusDot.style.background = isActive ? '#e5335a' : '#22c55e';
+        statusText.textContent = isActive ? '🔴 EMERGENCY ACTIVE — Live tracking' : '✅ Emergency Resolved';
+        statusBanner.style.background = isActive ? 'rgba(229,51,90,0.12)' : 'rgba(34,197,94,0.10)';
+        statusVal.textContent = incidentStatus?.toUpperCase() ?? '—';
+        statusVal.style.color = isActive ? '#e5335a' : '#22c55e';
+        headerSub.textContent = isActive ? 'Live location updating every 5 s' : 'Incident resolved';
+      }
+
+      // ── Step 1: Resolve token → incidentId ──
+      let unsubscribe = null;
+
+      if (isDemoMode) {
+        overlay.classList.add('hidden');
+        setStatus('active');
+        const startLat = 28.6139;
+        const startLng = 77.2090;
+        moveTo(startLat, startLng);
+        latVal.textContent = startLat.toFixed(6);
+        lngVal.textContent = startLng.toFixed(6);
+        updatedVal.textContent = formatTime(new Date().toISOString());
+
+        let step = 0;
+        setInterval(() => {
+          step += 0.05;
+          const currentLatitude = startLat + Math.sin(step) * 0.0015;
+          const currentLongitude = startLng + Math.cos(step) * 0.0015;
+          moveTo(currentLatitude, currentLongitude);
+          latVal.textContent = currentLatitude.toFixed(6);
+          lngVal.textContent = currentLongitude.toFixed(6);
+          updatedVal.textContent = formatTime(new Date().toISOString());
+        }, 3000);
+      } else {
+        if (!db) {
+          showError('Connection Error', 'Could not initialize database services. Please check your internet connection.');
+          return;
+        }
+        try {
+          const tokenDoc = await db.collection('tracking_tokens').doc(token).get();
+
+          if (!tokenDoc.exists) {
+            showError('Link Not Found', 'This tracking link is invalid or has expired. Please ask the sender to re-send the emergency message.');
+            throw new Error('Token document not found');
+          }
+
+          const { incidentId } = tokenDoc.data();
+
+          // ── Step 2: Subscribe to the incident document ──
+          unsubscribe = db.collection('incidents').doc(incidentId).onSnapshot((snap) => {
+            if (!snap.exists) {
+              showError('Incident Not Found', 'The emergency record could not be found in the database.');
+              return;
+            }
+
+            const data = snap.data();
+
+            // Hide overlay once we have data
+            overlay.classList.add('hidden');
+
+            // Update status
+            setStatus(data.status);
+
+            // Update map and info cards
+            const loc = data.latestLocation;
+            if (loc && loc.latitude && loc.longitude) {
+              moveTo(loc.latitude, loc.longitude);
+              latVal.textContent   = loc.latitude.toFixed(6);
+              lngVal.textContent   = loc.longitude.toFixed(6);
+              updatedVal.textContent = formatTime(loc.timestamp);
+            } else if (data.latitude && data.longitude) {
+              // Fall back to incident-level coords if no latestLocation yet
+              moveTo(data.latitude, data.longitude);
+              latVal.textContent = data.latitude.toFixed(6);
+              lngVal.textContent = data.longitude.toFixed(6);
+              updatedVal.textContent = formatTime(data.confirmedAt);
+            }
+          }, (err) => {
+            console.error('Firestore listener error', err);
+            showError('Connection Error', 'Could not connect to the live location service. Please check your internet connection.');
+          });
+
+        } catch (e) {
+          if (!overlayTitle.textContent.startsWith('Link') && !overlayTitle.textContent.startsWith('Incident') && !overlayTitle.textContent.startsWith('Connection')) {
+            showError('Error', 'An unexpected error occurred. Please try again.');
+          }
+          console.error(e);
+        }
+      }
+    })();
   </script>
 </body>
 </html>
