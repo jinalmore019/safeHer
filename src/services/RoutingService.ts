@@ -40,11 +40,15 @@ export const RoutingService = {
         });
         const data = await response.json();
         if (data && data.length > 0) {
-          console.log(`[RoutingService] Nominatim fallback successfully resolved: "${address}"`);
-          return {
-            latitude: parseFloat(data[0].lat),
-            longitude: parseFloat(data[0].lon)
-          };
+          const lat = parseFloat(data[0].lat);
+          const lon = parseFloat(data[0].lon);
+          if (!isNaN(lat) && !isNaN(lon)) {
+            console.log(`[RoutingService] Nominatim fallback successfully resolved: "${address}"`);
+            return {
+              latitude: lat,
+              longitude: lon
+            };
+          }
         }
         return null;
       } catch (fallbackError) {

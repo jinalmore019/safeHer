@@ -9,6 +9,13 @@ import { SafetyScoringService, SafetyScoreResult, COMMUNITY_DANGER_ZONES } from 
 import MapView, { Marker, Polyline, Circle } from 'react-native-maps';
 import { Card } from '../components/ui';
 
+const DELHI_REGION = {
+  latitude: 28.6139,
+  longitude: 77.2090,
+  latitudeDelta: 0.05,
+  longitudeDelta: 0.05,
+};
+
 export default function JourneyScreen() {
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState<JourneyStatus>('SAFE');
@@ -325,41 +332,39 @@ export default function JourneyScreen() {
           )}
 
           <View style={styles.mapContainer}>
-            {currentLoc && (
-              <MapView 
-                style={styles.map} 
-                region={currentLoc}
-                showsUserLocation={hasLocationPermission}
-              >
-                {sourceCoords && (
-                  <Marker coordinate={sourceCoords} title="Source" pinColor="#22c55e" />
-                )}
-                {destCoords && (
-                  <Marker coordinate={destCoords} title="Destination" />
-                )}
-                
-                {/* Draw Route Polyline */}
-                {routeCoords.length >= 2 && (
-                  <Polyline
-                    coordinates={routeCoords}
-                    strokeColor={Colors.brand.primary}
-                    strokeWidth={4}
-                  />
-                )}
-                
-                {/* Danger Zone Overlays */}
-                {COMMUNITY_DANGER_ZONES.map(zone => (
-                  <Circle
-                    key={zone.id}
-                    center={{ latitude: zone.latitude, longitude: zone.longitude }}
-                    radius={zone.radius}
-                    fillColor="rgba(255, 59, 48, 0.2)"
-                    strokeColor="rgba(255, 59, 48, 0.6)"
-                    strokeWidth={2}
-                  />
-                ))}
-              </MapView>
-            )}
+            <MapView 
+              style={styles.map} 
+              region={currentLoc || DELHI_REGION}
+              showsUserLocation={hasLocationPermission}
+            >
+              {sourceCoords && (
+                <Marker coordinate={sourceCoords} title="Source" pinColor="#22c55e" />
+              )}
+              {destCoords && (
+                <Marker coordinate={destCoords} title="Destination" />
+              )}
+              
+              {/* Draw Route Polyline */}
+              {routeCoords.length >= 2 && (
+                <Polyline
+                  coordinates={routeCoords}
+                  strokeColor={Colors.brand.primary}
+                  strokeWidth={4}
+                />
+              )}
+              
+              {/* Danger Zone Overlays */}
+              {COMMUNITY_DANGER_ZONES.map(zone => (
+                <Circle
+                  key={zone.id}
+                  center={{ latitude: zone.latitude, longitude: zone.longitude }}
+                  radius={zone.radius}
+                  fillColor="rgba(255, 59, 48, 0.2)"
+                  strokeColor="rgba(255, 59, 48, 0.6)"
+                  strokeWidth={2}
+                />
+              ))}
+            </MapView>
           </View>
 
           <TouchableOpacity style={styles.endBtn} onPress={handleEnd}>
