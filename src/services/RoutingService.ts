@@ -35,7 +35,7 @@ export const RoutingService = {
         const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
         const response = await fetch(url, {
           headers: {
-            'User-Agent': 'SafeHer-App-V1'
+            'Accept': 'application/json'
           }
         });
         const data = await response.json();

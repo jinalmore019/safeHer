@@ -165,8 +165,8 @@ export default function JourneyScreen() {
       setCurrentLoc({
         latitude: (resolvedSource.latitude + resolvedDest.latitude) / 2,
         longitude: (resolvedSource.longitude + resolvedDest.longitude) / 2,
-        latitudeDelta: Math.abs(resolvedSource.latitude - resolvedDest.latitude) * 1.5 || 0.05,
-        longitudeDelta: Math.abs(resolvedSource.longitude - resolvedDest.longitude) * 1.5 || 0.05,
+        latitudeDelta: Math.max(Math.abs(resolvedSource.latitude - resolvedDest.latitude) * 1.5, 0.005),
+        longitudeDelta: Math.max(Math.abs(resolvedSource.longitude - resolvedDest.longitude) * 1.5, 0.005),
       });
 
       // Start sentinel monitoring on destination and route deviation
@@ -327,7 +327,7 @@ export default function JourneyScreen() {
                 )}
                 
                 {/* Draw Route Polyline */}
-                {routeCoords.length > 0 && (
+                {routeCoords.length >= 2 && (
                   <Polyline
                     coordinates={routeCoords}
                     strokeColor={Colors.brand.primary}
