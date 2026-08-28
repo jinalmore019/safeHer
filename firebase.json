@@ -12,7 +12,22 @@
     "redirects": [
       {
         "source": "/download",
-        "destination": "https://expo.dev/artifacts/eas/4Yfmnhma5NegV9APW6eBKoHGGAxPLdezYCEjYEYf3zg.apk",
+        "destination": "https://expo.dev/artifacts/eas/WLK7txcCa_7jcwrVKI5Ak9XLMW3TrGP-DczmlXbCH2k.apk",
+        "type": 302
+      },
+      {
+        "source": "/feedback",
+        "destination": "https://docs.google.com/forms/d/e/1FAIpQLSfyL2x98pil6jC_tUC8zZKluK1O56eQrTz2Sk-P53O71LjKSQ/viewform",
+        "type": 302
+      },
+      {
+        "source": "/video",
+        "destination": "https://youtu.be/2oXYaOBMSh0?si=elFHAW0-avq3B3nYw",
+        "type": 302
+      },
+      {
+        "source": "/presentation",
+        "destination": "https://docs.google.com/presentation/d/your-presentation-id-here/edit",
         "type": 302
       }
     ],
