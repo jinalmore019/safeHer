@@ -2,10 +2,13 @@
 
 *Safety shouldn't be a privilege. It should be one tap away. Building tech that stands between a woman and danger, one line of code at a time. 💪*
 
-**We'd love for you to experience it yourself:**
-* 👇🎥 **Watch the demo video:** [Click Here to Watch](https://lnkd.in/dFj8T3Gy)
-* 📲 **Download the app (APK):** [Click Here to Download](https://lnkd.in/dYypRcwh)
-* 📝 **Try it & share your feedback:** [Give Feedback](https://lnkd.in/dDNDTViW)
+We'd love for you to experience it yourself 👇
+🎥 Watch the demo video: https://lnkd.in/dFj8T3Gy
+📲 Download the app (APK): https://lnkd.in/dYypRcwh
+📝 Try it & share your feedback: https://lnkd.in/dDNDTViW
+
+Safety shouldn't be a privilege. It should be one tap away. Your feedback genuinely shapes where we take this next — building tech that stands between a woman and danger, one line of code at a time. 💪
+
 
 ---
 
