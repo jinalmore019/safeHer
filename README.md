@@ -56,7 +56,51 @@ Follow these steps to run the app locally:
 ### 2. Installation
 
 Clone the repository and install dependencies:
-```bash
-git clone https://github.com/jinalmore019/safeHer.git
-cd safeHer
-npm install
+
+    git clone https://github.com/jinalmore019/safeHer.git
+    cd safeHer
+    npm install
+
+### 3. Running the App
+
+Start the Expo development server:
+
+    npx expo start
+
+*   Press `a` to open in the Android emulator.
+*   Scan the QR code with the **Expo Go** app on your physical Android/iOS device.
+
+### 4. Production Build (Android)
+To build the final signed APK using Expo Application Services (EAS):
+
+    eas build -p android --profile production
+
+---
+
+## 📋 Hackathon Submission Details
+
+*   **Hackathon**: DoraHacks 2.0
+*   **Product Name**: SafeHer
+*   **Category**: Consumer / Health / Safety
+*   **Status**: Final Integration Complete. All planned features tested and operational.
+
+---
+
+We'd love for you to experience it yourself 👇
+🎥 Watch the demo video: https://lnkd.in/dFj8T3Gy
+📲 Download the app (APK): https://lnkd.in/dYypRcwh
+📝 Try it & share your feedback: https://lnkd.in/dDNDTViW
+
+Safety shouldn't be a privilege. It should be one tap away. Your feedback genuinely shapes where we take this next — building tech that stands between a woman and danger, one line of code at a time. 💪
+
+
+
+
+
+## 📄 License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+
+
+
+
