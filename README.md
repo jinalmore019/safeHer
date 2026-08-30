@@ -3,6 +3,7 @@
 *Safety shouldn't be a privilege. It should be one tap away. Building tech that stands between a woman and danger, one line of code at a time. 💪*
 
 We'd love for you to experience it yourself 👇
+
 🎥 Watch the demo video: https://lnkd.in/dFj8T3Gy
 
 📲 Download the app (APK): https://lnkd.in/dYypRcwh
